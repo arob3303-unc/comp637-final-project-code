@@ -7,16 +7,19 @@ open util/ordering[State] as ord
 // 1. SIGNATURES: Define variables representing the system state
 sig State {
     // ----- Attacker-Caused Bad States -----
-    // Did attacker modify the protected .text section?
+    // Has the protected section been modified?
     protectedSectionModified: one Bool,
     // Did attacker make protected section writable?
     protectedSectionWritable: one Bool,
 
-    // ----- Anti-Cheat Detections (Separate Channels) -----
-    // Did we detect code integrity violation?
-    codeIntegrityDetected: one Bool,
-    // Did we detect page protection violation?
-    pageProtectionDetected: one Bool,
+    // ----- Periodic Check State / Integrity Subsystem -----
+    integrityCheckRan: one Bool, // Whether the code integrity check has run in this state
+    codeIntegrityViolationRecorded: one Bool, // Was a code integrity violation recorded?
+    pageProtectionViolationRecorded: one Bool, // Was a page protection violation recorded?
+
+    // ----- Anti-Cheat Escalation State -----
+    codeIntegrityDetected: one Bool, // Has the code integrity violation been escalated into an anti cheat detection outcome?
+    pageProtectionDetected: one Bool, // Has the page protection violation been escalated into an anti cheat detection outcome?
 
     // ----- Enforcement Outcome ----- -> important for final property
     // if any detection is raised but the player is not flagged, that would be a failure of the system
@@ -34,6 +37,10 @@ pred init[s: State] {
     s.protectedSectionModified = False
     s.protectedSectionWritable = False
 
+    s.integrityCheckRan = False
+    s.codeIntegrityViolationRecorded = False
+    s.pageProtectionViolationRecorded = False
+
     s.codeIntegrityDetected = False
     s.pageProtectionDetected = False
 
@@ -47,6 +54,12 @@ pred modifyProtectedSection[s: State, s_prime: State] {
     s_prime.protectedSectionModified = True
     // Writable status remains unchanged
     s_prime.protectedSectionWritable = s.protectedSectionWritable
+
+    s_prime.integrityCheckRan = s.integrityCheckRan // Attacker action does not itself run the integrity thread
+
+    // No violation is automatically recorded at the instant of attack
+    s_prime.codeIntegrityViolationRecorded = s.codeIntegrityViolationRecorded 
+    s_prime.pageProtectionViolationRecorded = s.pageProtectionViolationRecorded 
 
     // No detections happen yet (attacker hasn't been caught)
     s_prime.codeIntegrityDetected = s.codeIntegrityDetected
@@ -64,7 +77,13 @@ pred makeProtectedSectionWritable[s, s_prime: State] {
     // Modified status remains unchanged
     s_prime.protectedSectionModified = s.protectedSectionModified
 
-    // No detections happen yet
+    s_prime.integrityCheckRan = s.integrityCheckRan // Attacker action does not itself run the integrity thread
+
+    // No violations are automatically recorded at the instant of attack
+    s_prime.codeIntegrityViolationRecorded = s.codeIntegrityViolationRecorded
+    s_prime.pageProtectionViolationRecorded = s.pageProtectionViolationRecorded
+
+    // No detections is automatically escalated yet
     s_prime.codeIntegrityDetected = s.codeIntegrityDetected
     s_prime.pageProtectionDetected = s.pageProtectionDetected
 
@@ -72,33 +91,65 @@ pred makeProtectedSectionWritable[s, s_prime: State] {
     s_prime.flaggedCheater = s.flaggedCheater
 }
 
-// 4. TRANSITIONS: Anti-Cheat Detection Actions
-// Detection Channel 1: Code integrity check
-// This represents the anti-cheat scanning for .text section modifications
-pred detectCodeIntegrity[s, s_prime: State] {
-    // PRECONDITION: Code integrity check can only detect if section was modified
-    s.protectedSectionModified = True
 
-    // EFFECT: Detection flag is raised
-    s_prime.codeIntegrityDetected = True
-    // Other properties carry over unchanged
+// PERIODIC INTEGRITY CHECK
+pred runPeriodicIntegrityCheck[s: State, s_prime: State] {
+    // The integrity check thread has run
+    s_prime.integrityCheckRan = True
+
+    // Attacker-caused bad states persist unless changed elsewhere
     s_prime.protectedSectionModified = s.protectedSectionModified
     s_prime.protectedSectionWritable = s.protectedSectionWritable
+
+    // Record code-integrity violation if modification is present
+    s.protectedSectionModified = True
+        => s_prime.codeIntegrityViolationRecorded = True
+        else s_prime.codeIntegrityViolationRecorded = s.codeIntegrityViolationRecorded
+
+    // Record page-protection violation if writability is present
+    s.protectedSectionWritable = True
+        => s_prime.pageProtectionViolationRecorded = True
+        else s_prime.pageProtectionViolationRecorded = s.pageProtectionViolationRecorded
+
+    // Running the integrity thread does not itself force escalation
+    s_prime.codeIntegrityDetected = s.codeIntegrityDetected
+    s_prime.pageProtectionDetected = s.pageProtectionDetected
+
+    // Running the integrity thread does not itself force enforcement
+    s_prime.flaggedCheater = s.flaggedCheater
+}
+
+// Escalation Transitions
+// Escalation Channel 1: Code integrity violation is detected and escalated
+pred escalateCodeIntegrityViolation[s: State, s_prime: State] {
+    // Precondition: the integrity subsytem already recorded the violation
+    s.codeIntegrityViolationRecorded = True
+    // Effect: raise code integrity detection
+    s_prime.codeIntegrityDetected = True
+
+    // Carry over all other state properties
+    s_prime.protectedSectionModified = s.protectedSectionModified
+    s_prime.protectedSectionWritable = s.protectedSectionWritable
+    s_prime.integrityCheckRan = s.integrityCheckRan
+    s_prime.codeIntegrityViolationRecorded = s.codeIntegrityViolationRecorded
+    s_prime.pageProtectionViolationRecorded = s.pageProtectionViolationRecorded
     s_prime.pageProtectionDetected = s.pageProtectionDetected
     s_prime.flaggedCheater = s.flaggedCheater
 }
 
-// Detection Channel 2: Page protection check
-// This represents the anti-cheat scanning for writable protected pages
-pred detectPageProtection[s, s_prime: State] {
-    // PRECONDITION: Page protection check can only detect if section became writable
-    s.protectedSectionWritable = True
-
-    // EFFECT: Detection flag is raised
+// Escalation Channel 2: Page protection violation is detected and escalated
+pred escalatePageProtectionViolation[s: State, s_prime: State] {
+    // Precondition: the integrity subsytem already recored the violation
+    s.pageProtectionViolationRecorded = True
+    // Effect: raise page protection detection
     s_prime.pageProtectionDetected = True
-    // Other properties carry over unchanged
+
+    // Carry over all other state properties
     s_prime.protectedSectionModified = s.protectedSectionModified
     s_prime.protectedSectionWritable = s.protectedSectionWritable
+    s_prime.integrityCheckRan = s.integrityCheckRan
+    s_prime.codeIntegrityViolationRecorded = s.codeIntegrityViolationRecorded
+    s_prime.pageProtectionViolationRecorded = s.pageProtectionViolationRecorded
     s_prime.codeIntegrityDetected = s.codeIntegrityDetected
     s_prime.flaggedCheater = s.flaggedCheater
 }
@@ -114,6 +165,9 @@ pred flagAsCheater[s, s_prime: State] {
     // Attack/detection status remains unchanged
     s_prime.protectedSectionModified = s.protectedSectionModified
     s_prime.protectedSectionWritable = s.protectedSectionWritable
+    s_prime.integrityCheckRan = s.integrityCheckRan
+    s_prime.codeIntegrityViolationRecorded = s.codeIntegrityViolationRecorded
+    s_prime.pageProtectionViolationRecorded = s.pageProtectionViolationRecorded
     s_prime.codeIntegrityDetected = s.codeIntegrityDetected
     s_prime.pageProtectionDetected = s.pageProtectionDetected
 }
@@ -125,6 +179,9 @@ pred stutter[s, s_prime: State] {
     // All properties remain unchanged
     s_prime.protectedSectionModified = s.protectedSectionModified
     s_prime.protectedSectionWritable = s.protectedSectionWritable
+    s_prime.integrityCheckRan = s.integrityCheckRan
+    s_prime.codeIntegrityViolationRecorded = s.codeIntegrityViolationRecorded
+    s_prime.pageProtectionViolationRecorded = s.pageProtectionViolationRecorded
     s_prime.codeIntegrityDetected = s.codeIntegrityDetected
     s_prime.pageProtectionDetected = s.pageProtectionDetected
     s_prime.flaggedCheater = s.flaggedCheater
@@ -136,8 +193,9 @@ pred stutter[s, s_prime: State] {
 pred step[s, s_prime: State] {
     modifyProtectedSection[s, s_prime]
     or makeProtectedSectionWritable[s, s_prime]
-    or detectCodeIntegrity[s, s_prime]
-    or detectPageProtection[s, s_prime]
+    or runPeriodicIntegrityCheck[s, s_prime]
+    or escalateCodeIntegrityViolation[s, s_prime]
+    or escalatePageProtectionViolation[s, s_prime]
     or flagAsCheater[s, s_prime]
     or stutter[s, s_prime]
 }
@@ -159,25 +217,38 @@ assert InitialStateIsClean {
     init[ord/first]
 }
 
+assert NoCodeViolationWithoutIntegrityCheck {
+    all s: State |
+        s.codeIntegrityViolationRecorded = True implies
+            some p: ord/first.*(ord/next) & s.*(~ord/next) |
+                p.integrityCheckRan = True
+}
+
+assert NoPageViolationWithoutIntegrityCheck {
+    all s: State |
+        s.pageProtectionViolationRecorded = True implies
+            some p: ord/first.*(ord/next) & s.*(~ord/next) |
+                p.integrityCheckRan = True
+}
+
+assert NoCodeIntegrityDetectionWithoutRecordedViolation {
+    all s: State |
+        s.codeIntegrityDetected = True implies
+            some p: ord/first.*(ord/next) & s.*(~ord/next) |
+                p.codeIntegrityViolationRecorded = True
+}
+
+assert NoPageProtectionDetectionWithoutRecordedViolation {
+    all s: State |
+        s.pageProtectionDetected = True implies
+            some p: ord/first.*(ord/next) & s.*(~ord/next) |
+                p.pageProtectionViolationRecorded = True
+}
 assert NoFlagWithoutDetection {
     all s: State |
         s.flaggedCheater = True implies
             some p: ord/first.*(ord/next) & s.*(~ord/next) |
                 p.codeIntegrityDetected = True or p.pageProtectionDetected = True
-}
-
-assert NoCodeIntegrityFalsePositive {
-    all s: State |
-        s.codeIntegrityDetected = True implies
-            some p: ord/first.*(ord/next) & s.*(~ord/next) |
-            p.protectedSectionModified = True
-}
-
-assert NoPageProtectionFalsePositive {
-    all s: State |
-        s.pageProtectionDetected = True implies
-            some p: ord/first.*(ord/next) & s.*(~ord/next) |
-                p.protectedSectionWritable = True
 }
 
 assert FlaggingMonotonic {
@@ -188,18 +259,33 @@ assert FlaggingMonotonic {
 // ===================================================
 
 // ASSERTION 1: Code modification must eventually be detected
-// If an attacker modifies code, the anti-cheat MUST catch it
-assert ModifiedSectionEventuallyDetected {
+// If the protected section is modified, the periodic integrity check should eventually record a code integrity violation
+assert ModifiedSectionEventuallyRecorded {
     all s: State |
         s.protectedSectionModified = True implies
+            some t: s.*(ord/next) | t.codeIntegrityViolationRecorded = True
+}
+
+
+// ASSERTION 2: Page protection violation must eventually be detected
+// If the protected section becomes writable, the periodic integrity check should eventually record a page protection violation
+assert WritableSectionEventuallyRecorded {
+    all s: State |
+        s.protectedSectionWritable = True implies
+            some t: s.*(ord/next) | t.pageProtectionViolationRecorded = True
+}
+
+// ASSERTION 3: If a code integrity violation has been recorded, it should eventually be escalated into an anti-cheat dection result
+assert CodeViolationEventuallyEscalated {
+    all s: State |
+        s.codeIntegrityViolationRecorded = True implies
             some t: s.*(ord/next) | t.codeIntegrityDetected = True
 }
 
-// ASSERTION 2: Page protection violation must eventually be detected
-// If an attacker makes pages writable, the anti-cheat MUST catch it
-assert WritableSectionEventuallyDetected {
+// ASSERTION 4: If a page protection violation has been recorded, it should eventually be escalated into an anti-cheat detection result
+assert PageViolationEventuallyEscalated {
     all s: State |
-        s.protectedSectionWritable = True implies
+        s.pageProtectionViolationRecorded = True implies
             some t: s.*(ord/next) | t.pageProtectionDetected = True
 }
 
@@ -212,16 +298,18 @@ assert DetectionEventuallyFlagged {
             some t: s.*(ord/next) | t.flaggedCheater = True
 }
 
-// 10. VERIFICATION: Check the strongest assertion
+-- Sanity checks
 check InitialStateIsClean for 6
+check NoCodeViolationWithoutIntegrityCheck for 6
+check NoPageViolationWithoutIntegrityCheck for 6
+check NoCodeIntegrityDetectionWithoutRecordedViolation for 6
+check NoPageProtectionDetectionWithoutRecordedViolation for 6
 check NoFlagWithoutDetection for 6
-check NoCodeIntegrityFalsePositive for 6
-check NoPageProtectionFalsePositive for 6
 check FlaggingMonotonic for 6
 
-check ModifiedSectionEventuallyDetected for 6
-check WritableSectionEventuallyDetected for 6
-
-// We check DetectionEventuallyFlagged with scope 6 States
-// This verifies the complete chain: Attack → Detection → Enforcement
+-- Main security properties
+check ModifiedSectionEventuallyRecorded for 6
+check WritableSectionEventuallyRecorded for 6
+check CodeViolationEventuallyEscalated for 6
+check PageViolationEventuallyEscalated for 6
 check DetectionEventuallyFlagged for 6
