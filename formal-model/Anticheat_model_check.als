@@ -151,7 +151,40 @@ fact Trace {
     all s: State - ord/last | step[s, ord/next[s]]
 }
 
-// 9. SECURITY PROPERTIES: Three Assertions to Verify
+// 9. Sanity Check Properties
+// Ensure the system behaves as expected when not under attack
+
+// Explicitly checking that initial state is clean
+assert InitialStateIsClean {
+    init[ord/first]
+}
+
+assert NoFlagWithoutDetection {
+    all s: State |
+        s.flaggedCheater = True implies
+            some p: ord/first.*(ord/next) & s.*(~ord/next) |
+                p.codeIntegrityDetected = True or p.pageProtectionDetected = True
+}
+
+assert NoCodeIntegrityFalsePositive {
+    all s: State |
+        s.codeIntegrityDetected = True implies
+            some p: ord/first.*(ord/next) & s.*(~ord/next) |
+            p.protectedSectionModified = True
+}
+
+assert NoPageProtectionFalsePositive {
+    all s: State |
+        s.pageProtectionDetected = True implies
+            some p: ord/first.*(ord/next) & s.*(~ord/next) |
+                p.protectedSectionWritable = True
+}
+
+assert FlaggingMonotonic {
+    all s: State - ord/last |
+        s.flaggedCheater = True implies ord/next[s].flaggedCheater = True
+}
+// 10. SECURITY PROPERTIES: Three Assertions to Verify
 // ===================================================
 
 // ASSERTION 1: Code modification must eventually be detected
@@ -180,6 +213,15 @@ assert DetectionEventuallyFlagged {
 }
 
 // 10. VERIFICATION: Check the strongest assertion
+check InitialStateIsClean for 6
+check NoFlagWithoutDetection for 6
+check NoCodeIntegrityFalsePositive for 6
+check NoPageProtectionFalsePositive for 6
+check FlaggingMonotonic for 6
+
+check ModifiedSectionEventuallyDetected for 6
+check WritableSectionEventuallyDetected for 6
+
 // We check DetectionEventuallyFlagged with scope 6 States
 // This verifies the complete chain: Attack → Detection → Enforcement
 check DetectionEventuallyFlagged for 6
