@@ -122,7 +122,7 @@ pred flagAsCheater[s, s_prime: State] {
 // Allow state to transition to itself (no action taken)
 // Critical for temporal logic - prevents artificial violations
 pred stutter[s, s_prime: State] {
-    // All properties remain unchanged
+    // all properties remain unchanged
     s_prime.protectedSectionModified = s.protectedSectionModified
     s_prime.protectedSectionWritable = s.protectedSectionWritable
     s_prime.codeIntegrityDetected = s.codeIntegrityDetected
