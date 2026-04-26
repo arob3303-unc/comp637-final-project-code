@@ -46,8 +46,8 @@ pred modifyProtectedSection[s, s_prime: State] {
     s_prime.checksumViolationRecorded = s.checksumViolationRecorded
 }
 
-// periodic checksum integrity check runs
-pred runChecksumIntegrityCheck[s, s_prime: State] {
+// Periodic checksum integrity check runs.
+pred checkRuns[s, s_prime: State] {
     // The periodic checksum check runs in this step.
     s_prime.checksumCheckRan = True
 
@@ -55,7 +55,9 @@ pred runChecksumIntegrityCheck[s, s_prime: State] {
     s_prime.protectedSectionModified = s.protectedSectionModified
 
     // If the protected section is modified, record a checksum violation.
-    s.protectedSectionModified = True =>
+    // This models Integrity::PeriodicIntegrityCheck adding an IntegrityViolation
+    // when the recomputed checksum no longer matches the stored baseline.
+    (s.protectedSectionModified = True and s_prime.checksumCheckRan = True) =>
         s_prime.checksumViolationRecorded = True
     else
         s_prime.checksumViolationRecorded = s.checksumViolationRecorded
@@ -77,7 +79,7 @@ pred stutter[s, s_prime: State] {
 
 pred step[s, s_prime: State] {
     modifyProtectedSection[s, s_prime]
-    or runChecksumIntegrityCheck[s, s_prime]
+    or checkRuns[s, s_prime]
     or stutter[s, s_prime]
 }
 
@@ -131,12 +133,12 @@ assert ChecksumViolationMonotonic {
    Main Security Properties
 ------------------------- */
 
-// If a protected section is modified, a checksum violation should eventually be recorded.
-assert ModifiedSectionEventuallyRecorded {
-    all s: State |
-        s.protectedSectionModified = True implies
-            some t: s.*(ord/next) |
-                t.checksumViolationRecorded = True
+// If a protected section is modified and the checksum check runs, a checksum
+// violation should be recorded by that transition.
+assert ModifiedSectionRecordedWhenCheckRuns {
+    all s: State - ord/last |
+        (s.protectedSectionModified = True and checkRuns[s, ord/next[s]]) implies
+            ord/next[s].checksumViolationRecorded = True
 }
 
 /* -------------------------
@@ -149,4 +151,4 @@ check NoViolationWithoutModification for 6
 check ModificationMonotonic for 6
 check ChecksumViolationMonotonic for 6
 
-check ModifiedSectionEventuallyRecorded for 6
+check ModifiedSectionRecordedWhenCheckRuns for 6

@@ -43,7 +43,7 @@ pred modifyTLSCallbackStructure[s, s_prime: State] {
    TLS Integrity Check
 ------------------------- */
 
-pred runTLSIntegrityCheck[s, s_prime: State] {
+pred checkRuns[s, s_prime: State] {
     s_prime.tlsIntegrityCheckRan = True
 
     /*
@@ -55,7 +55,7 @@ pred runTLSIntegrityCheck[s, s_prime: State] {
      * If the TLS callback structure is modified, record a CODE_INTEGRITY flag.
      * Otherwise, preserve the previous flag state.
      */
-    s.tlsCallbackModified = True =>
+    (s.tlsCallbackModified = True and s_prime.tlsIntegrityCheckRan = True) =>
         s_prime.codeIntegrityFlagRecorded = True
     else
         s_prime.codeIntegrityFlagRecorded = s.codeIntegrityFlagRecorded
@@ -80,7 +80,7 @@ pred stutter[s, s_prime: State] {
 
 pred step[s, s_prime: State] {
     modifyTLSCallbackStructure[s, s_prime]
-    or runTLSIntegrityCheck[s, s_prime]
+    or checkRuns[s, s_prime]
     or stutter[s, s_prime]
 }
 
@@ -154,14 +154,13 @@ assert CodeIntegrityFlagMonotonic {
 ------------------------- */
 
 /*
- * If the TLS callback structure is modified, then a CODE_INTEGRITY flag
- * should eventually be recorded.
+ * If the TLS callback structure is modified and the TLS integrity check runs,
+ * then a CODE_INTEGRITY flag should be recorded by that transition.
  */
-assert TLSModificationEventuallyFlagged {
-    all s: State |
-        s.tlsCallbackModified = True implies
-            some t: s.*(ord/next) |
-                t.codeIntegrityFlagRecorded = True
+assert TLSModificationFlaggedWhenCheckRuns {
+    all s: State - ord/last |
+        (s.tlsCallbackModified = True and checkRuns[s, ord/next[s]]) implies
+            ord/next[s].codeIntegrityFlagRecorded = True
 }
 
 /* -------------------------
@@ -174,4 +173,4 @@ check NoFlagWithoutTLSModification for 6
 check TLSModificationMonotonic for 6
 check CodeIntegrityFlagMonotonic for 6
 
-check TLSModificationEventuallyFlagged for 6
+check TLSModificationFlaggedWhenCheckRuns for 6

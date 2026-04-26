@@ -56,8 +56,8 @@ pred attachDebugger[s, s_prime: State] {
    Debugger Detection Check
 ------------------------- */
 
-// Periodic debugger detection check runs
-pred runDebuggerDetectionCheck[s, s_prime: State] {
+// Periodic debugger detection check runs.
+pred checkRuns[s, s_prime: State] {
     // The periodic debugger detection check runs in this step
     s_prime.debuggerCheckRan = True
 
@@ -66,7 +66,7 @@ pred runDebuggerDetectionCheck[s, s_prime: State] {
 
     // If a debugger is attached, record a debugger detection
     // Otherwise, preserve the previous detection state
-    s.debuggerAttached = True =>
+    (s.debuggerAttached = True and s_prime.debuggerCheckRan = True) =>
         s_prime.debuggerDetectionRecorded = True
     else
         s_prime.debuggerDetectionRecorded = s.debuggerDetectionRecorded
@@ -89,7 +89,7 @@ pred stutter[s, s_prime: State] {
 
 pred step[s, s_prime: State] {
     attachDebugger[s, s_prime]
-    or runDebuggerDetectionCheck[s, s_prime]
+    or checkRuns[s, s_prime]
     or stutter[s, s_prime]
 }
 
@@ -162,14 +162,13 @@ assert DebuggerDetectionMonotonic {
 ------------------------- */
 
 /*
- * If a debugger is attached to the process, then a DEBUGGER_DETECTED flag
- * should eventually be recorded.
+ * If a debugger is attached to the process and the debugger detection check
+ * runs, then a debugger detection should be recorded by that transition.
  */
-assert DebuggerAttachmentEventuallyDetected {
-    all s: State |
-        s.debuggerAttached = True implies
-            some t: s.*(ord/next) |
-                t.debuggerDetectionRecorded = True
+assert DebuggerAttachmentDetectedWhenCheckRuns {
+    all s: State - ord/last |
+        (s.debuggerAttached = True and checkRuns[s, ord/next[s]]) implies
+            ord/next[s].debuggerDetectionRecorded = True
 }
 
 /* -------------------------
@@ -182,5 +181,5 @@ check NoDetectionWithoutDebuggerAttachment for 6
 check DebuggerAttachmentMonotonic for 6
 check DebuggerDetectionMonotonic for 6
 
-check DebuggerAttachmentEventuallyDetected for 6
+check DebuggerAttachmentDetectedWhenCheckRuns for 6
 

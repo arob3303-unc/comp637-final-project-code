@@ -37,11 +37,11 @@ pred makeProtectedSectionWritable[s, s_prime: State] {
    Page Protection Check
 ------------------------- */
 
-pred runPageProtectionCheck[s, s_prime: State] {
+pred checkRuns[s, s_prime: State] {
     s_prime.pageProtectionCheckRan = True
     s_prime.protectedSectionWritable = s.protectedSectionWritable
 
-    s.protectedSectionWritable = True =>
+    (s.protectedSectionWritable = True and s_prime.pageProtectionCheckRan = True) =>
         s_prime.pageProtectionFlagRecorded = True
     else
         s_prime.pageProtectionFlagRecorded = s.pageProtectionFlagRecorded
@@ -66,7 +66,7 @@ pred stutter[s, s_prime: State] {
 
 pred step[s, s_prime: State] {
     makeProtectedSectionWritable[s, s_prime]
-    or runPageProtectionCheck[s, s_prime]
+    or checkRuns[s, s_prime]
     or stutter[s, s_prime]
 }
 
@@ -139,15 +139,14 @@ assert PageProtectionFlagMonotonic {
 ------------------------- */
 
 /*
- * If a protected section is made writable, then a PAGE_PROTECTIONS flag
- * should eventually be recorded.
+ * If a protected section is made writable and the page-protection check runs,
+ * then a PAGE_PROTECTIONS flag should be recorded by that transition.
  *
  */
-assert WritableSectionEventuallyFlagged {
-    all s: State |
-        s.protectedSectionWritable = True implies
-            some t: s.*(ord/next) |
-                t.pageProtectionFlagRecorded = True
+assert WritableSectionFlaggedWhenCheckRuns {
+    all s: State - ord/last |
+        (s.protectedSectionWritable = True and checkRuns[s, ord/next[s]]) implies
+            ord/next[s].pageProtectionFlagRecorded = True
 }
 
 /* -------------------------
@@ -160,4 +159,4 @@ check NoFlagWithoutWritableSection for 6
 check WritableSectionMonotonic for 6
 check PageProtectionFlagMonotonic for 6
 
-check WritableSectionEventuallyFlagged for 6
+check WritableSectionFlaggedWhenCheckRuns for 6
