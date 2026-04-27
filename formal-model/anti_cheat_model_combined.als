@@ -1,5 +1,7 @@
 /*
  * anti_cheat_model_combined.als
+ * 
+ *  ----------- Combined models in one file ----------- 
  *
  * Combined source-faithful model of the anti-cheat detection mechanisms
  * covered by:
