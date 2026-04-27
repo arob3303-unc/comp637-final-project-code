@@ -312,4 +312,4 @@ check ModifiedSectionEventuallyRecorded for 6
 check WritableSectionEventuallyRecorded for 6
 check CodeViolationEventuallyEscalated for 6
 check PageViolationEventuallyEscalated for 6
-check DetectionEventuallyFlagged for 6
+check DetectionEventuallyFlagged for 1000
